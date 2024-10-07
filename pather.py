@@ -144,7 +144,7 @@ class CurlJSONFormatterApp:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to extract variables from URL: {str(e)}")
 
-      def parse_get_request(self, curl_command):
+    def parse_get_request(self, curl_command):
         start = curl_command.find("http")
         url = curl_command[start:].split()[0]
         parsed_url = urlparse(url)
