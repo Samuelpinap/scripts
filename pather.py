@@ -21,6 +21,16 @@ class CurlJSONFormatterApp:
         self.root.title("Curl JSON Formatter")
         self.root.geometry("1000x1000")
         self.root.resizable(True, True)
+        
+         # Prefix input field
+        prefix_frame = tk.Frame(self.root)
+        prefix_frame.pack(fill=tk.X, padx=10, pady=10)
+        prefix_label = tk.Label(prefix_frame, text="Prefix:")
+        prefix_label.pack(side=tk.LEFT)
+        self.prefix_input = tk.Entry(prefix_frame)
+        self.prefix_input.pack(side=tk.RIGHT)
+        self.prefix_input.insert(0, "api/v1")  # Default value
+
 
         # Status code label
         self.status_label = tk.Label(self.root, text="Status Code: N/A", font=('Arial', 14))
@@ -39,7 +49,7 @@ class CurlJSONFormatterApp:
         
           # Test type selector
         tk.Label(self.root, text="Select Test Type:").pack(pady=(10, 0))
-        self.test_type = ttk.Combobox(self.root, values=["List", "Create", "Show"], state="readonly")
+        self.test_type = ttk.Combobox(self.root, values=["List", "Create", "Show", "Update"], state="readonly")
         self.test_type.current(0)  # Set default to List
         self.test_type.pack(pady=(0, 10))
 
@@ -71,7 +81,7 @@ class CurlJSONFormatterApp:
         self.output_text.pack(padx=10, pady=(0, 10))
 
         # PHP Code Output area (initially hidden)
-        self.query_output = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, width=110, height=10)
+        self.query_output = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, width=110, height=30)
         self.query_output.pack(padx=10, pady=(0, 10))
         self.query_output.pack_forget()  # Initially hide
 
@@ -278,12 +288,14 @@ class CurlJSONFormatterApp:
             return self.generate_create_tests(path, data, json_data)
         elif test_type == "Show":
             return self.generate_show_tests(path, json_data)
+        elif test_type == "Update":
+            return self.generate_update_tests(path, data, json_data)
         else:
             raise ValueError(f"Unknown test type: {test_type}")
 
 
     def generate_list_tests(self, path, structure, json_data, query_params=None):
-        base_path = path.rstrip('/').split('/')[-1]
+        base_path = path.rstrip('/').replace('/', '_')
         structure = self.parse_json_structure(json_data)
         formatted_structure = self.format_structure(structure)
         # Test 1: Authenticated request test
@@ -296,31 +308,8 @@ class CurlJSONFormatterApp:
             $response = $this->get('{path}');
 
             $response->assertStatus(200);
-            $response->assertJsonStructure([
-                'data' => {formatted_structure},
-                'links' => [
-                    'first',
-                    'last',
-                    'prev',
-                    'next'
-                ],
-                'meta' => [
-                    'current_page',
-                    'from',
-                    'last_page',
-                    'links' => [
-                        '*' => [
-                            'url',
-                            'label',
-                            'active'
-                        ]
-                    ],
-                    'path',
-                    'per_page',
-                    'to',
-                    'total'
-                ]
-            ]);
+            $response->assertJsonStructure(
+                 {formatted_structure});
             $this->assertNotTrue(count($response['data']) < 1, 'Response DATA is empty');
         }}
         """
@@ -403,6 +392,7 @@ class CurlJSONFormatterApp:
         return (authenticated_test + invalid_test + no_permission_test + unauthenticated_test).replace("''", "'").replace("'_", "_").replace("_'","_")
     def generate_create_tests(self, path, data, json_data):
         base_path = path.rstrip('/').split('/')[-1]
+        title_path = path.rstrip('/').replace('/', '_')
     
         data_str = "[\n            " + ",\n            ".join(data) + "\n        ,]"
     
@@ -427,7 +417,7 @@ class CurlJSONFormatterApp:
          
         # Test 1: Authenticated create test
         authenticated_test = f"""
-        public function test_create_{base_path}_authenticated()
+        public function test_create_{title_path}_authenticated()
         {{
             $user = User::where('email', 'admin@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
@@ -454,7 +444,7 @@ class CurlJSONFormatterApp:
         """
         # Test 2: Create without permission
         no_permission_test = f"""
-        public function test_create_{base_path}_without_permission_authenticated()
+        public function test_create_{title_path}_without_permission_authenticated()
         {{
             $user = User::where('email', 'user@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
@@ -471,7 +461,7 @@ class CurlJSONFormatterApp:
         """
         # Test 3: Create with missing info
         missing_info_test = f"""
-        public function test_create_{base_path}_missing_info_authenticated()
+        public function test_create_{title_path}_missing_info_authenticated()
         {{
             $user = User::where('email', 'admin@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
@@ -485,7 +475,7 @@ class CurlJSONFormatterApp:
 
         # Test 4: Unauthenticated create test
         unauthenticated_test = f"""
-        public function test_create_{base_path}_unauthenticated()
+        public function test_create_{title_path}_unauthenticated()
         {{
             $data = {data_str};
             $response = $this->post('{path}', $data);
@@ -502,6 +492,8 @@ class CurlJSONFormatterApp:
 
     def generate_show_tests(self, path, json_data):
         base_path = path.rstrip('/').split('/')[-1]
+        title_path = path.rstrip('/').replace('/', '_')
+        
         # Generate assertJsonStructure based on json_data
         def generate_structure(data, indent=3):
             if isinstance(data, dict):
@@ -519,14 +511,15 @@ class CurlJSONFormatterApp:
         formatted_structure = self.format_structure(structure)
         
 
+
         # Test 1: Authenticated show test
         authenticated_test = f"""
-        public function test_show_{base_path}_authenticated()
+        public function test_show_{title_path}_authenticated()
         {{
             $this->$user = $user = User::where('email', 'admin@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
             ${base_path}Id = {base_path.capitalize()}::all()->first()->id;
-            $response = $this->get('/api/v1/{base_path}/' . ${base_path}Id . '/show');
+            $response = $this->get('{path}/' . ${base_path}Id . '/show');
             $response->assertStatus(200);
             $response->assertJsonStructure({formatted_structure});
             $this->assertNotTrue(count($response['data'])<1,'Response DATA is empty');
@@ -535,25 +528,25 @@ class CurlJSONFormatterApp:
 
         # Test 2: Invalid ID test
         invalid_id_test = f"""
-        public function test_show_{base_path}_invalid_id_authenticated()
+        public function test_show_{title_path}_invalid_id_authenticated()
         {{
             $this->$user = $user = User::where('email', 'admin@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
             ${base_path}Id = {base_path.capitalize()}::all()->last()->id+9999;
             $this->withoutExceptionHandling();
             $this->expectException(ModelNotFoundException::class);
-            $response = $this->get('/api/v1/{base_path}/' . ${base_path}Id . '/show');
+            $response = $this->get('{path}/' . ${base_path}Id . '/show');
         }}
         """
 
         # Test 3: Without permission test
         no_permission_test = f"""
-        public function test_show_{base_path}_without_permission_authenticated()
+        public function test_show_{title_path}_without_permission_authenticated()
         {{
             $this->$user = $user = User::where('email', 'user@pruebas.com')->first();
             $this->actingAs(Passport::actingAs($user));
             ${base_path}Id = {base_path.capitalize()}::all()->first()->id;
-            $response = $this->get('/api/v1/{base_path}/' . ${base_path}Id . '/show');
+            $response = $this->get('{path}/' . ${base_path}Id . '/show');
             $response->assertStatus(401);
             $response->assertJsonStructure([
                 'status',
@@ -566,10 +559,10 @@ class CurlJSONFormatterApp:
 
         # Test 4: Unauthenticated test
         unauthenticated_test = f"""
-        public function test_show_{base_path}_unauthenticated()
+        public function test_show_{title_path}_unauthenticated()
         {{
             ${base_path}Id = {base_path.capitalize()}::all()->first()->id;
-            $response = $this->get('/api/v1/{base_path}/' . ${base_path}Id . '/show');
+            $response = $this->get('{path}/' . ${base_path}Id . '/show');
             $this->followRedirects($response)
                 ->assertStatus(404)
                 ->assertJsonStructure([
@@ -581,6 +574,99 @@ class CurlJSONFormatterApp:
 
         return (authenticated_test + invalid_id_test + no_permission_test + unauthenticated_test).replace("''", "'").replace("'_", "_").replace("_'","_")
 
+    def generate_update_tests(self, path, data, json_data):
+        base_path = path.rstrip('/').split('/')[-1] # Get the base path (e.g., 'procedures')
+        title_path = path.replace(self.prefix_input.get(), "").rstrip('/').replace('/', '_')
+        data_str = "[\n            " + ",\n            ".join(data) + "\n        ]"
+        
+        structure = self.parse_json_structure(json_data)
+        formatted_structure = self.format_structure(structure)
+        
+        # Generate error messages for all fields
+        error_assertions = "\n".join([f"            '{key.split('=')[0]}' => 'El campo {key.split('=')[0].replace('_', ' ')} es requerido.'" for key in data])
+        json_path_assertions = "\n".join([f"            ->assertJsonPath('data.{key.split('=>')[0]}', $data['{key.split('=>')[0]}'])" for key in data])
+        
+        # Test 1: Authenticated update test
+        authenticated_test = f"""
+        public function test_update_{title_path}_by_id_authenticated()
+        {{
+            $this->$user = $user = User::where('email', 'admin@pruebas.com')->first();
+            $this->actingAs(Passport::actingAs($user));
+            ${base_path}Id = {base_path.capitalize()}::all()->last()->id;
+            $data = {data_str};
+            $response = $this->post('{path}/' . ${base_path}Id . '/update', $data);
+            $response->assertStatus(200);
+            $response->assertJsonStructure({formatted_structure})
+            {json_path_assertions};
+            $this->assertDatabaseHas('{base_path}', {data_str});
+            $this->assertNotTrue(count($response['data'])<1,'Response DATA is empty');
+        }}
+        """
+
+        # Test 2: Update without permission
+        no_permission_test = f"""
+        public function test_update_{title_path}_by_id_without_permission_authenticated()
+        {{
+            $this->$user = $user = User::where('email', 'user@pruebas.com')->first();
+            $this->actingAs(Passport::actingAs($user));
+            ${base_path}Id = {base_path.capitalize()}::all()->last()->id;
+            $data = {data_str};
+            $response = $this->post('{path}/' . ${base_path}Id . '/update', $data);
+            $response->assertStatus(401);
+            $response->assertJsonStructure([
+                'status',
+                'message'
+            ]);
+            $response->assertJsonPath('status', 'error');
+            $response->assertJsonPath('message', 'Usuario no posee permisos');
+        }}
+        """
+
+        # Test 3: Update with missing info
+        missing_info_test = f"""
+        public function test_update_{title_path}_by_id_missing_info_authenticated()
+        {{
+            $this->$user = $user = User::where('email', 'admin@pruebas.com')->first();
+            $this->actingAs(Passport::actingAs($user));
+            ${base_path}Id = {base_path.capitalize()}::all()->last()->id;
+            $data = [];
+            $response = $this->post('{path}/' . ${base_path}Id . '/update', $data);
+            $response->assertSessionHasErrors([
+    {error_assertions}
+            ]);
+        }}
+        """
+
+        # Test 4: Update with invalid ID
+        invalid_id_test = f"""
+        public function test_update_{title_path}_by_invalid_id_authenticated()
+        {{
+            $this->$user = $user = User::where('email', 'admin@pruebas.com')->first();
+            $this->actingAs(Passport::actingAs($user));
+            ${base_path}Id = {base_path.capitalize()}::all()->last()->id+999;
+            $data = {data_str};
+            $this->withoutExceptionHandling();
+            $this->expectException(ModelNotFoundException::class);
+            $response = $this->post('{path}/' . ${base_path}Id . '/update', $data);
+        }}
+        """
+
+        # Test 5: Unauthenticated update test
+        unauthenticated_test = f"""
+        public function test_update_{title_path}_by_id_unauthenticated()
+        {{
+            $data = {data_str};
+            $response = $this->post('{path}/1/update', $data);
+            $this->followRedirects($response)
+                ->assertStatus(404)
+                ->assertJsonStructure([
+                    'message',
+                    'status'
+                ])->assertJsonPath('message', 'Ruta incorrecta o user no autenticado');
+        }}
+        """
+
+        return (authenticated_test + no_permission_test + missing_info_test + invalid_id_test + unauthenticated_test).replace("''", "'").replace("'_", "_").replace("_'","_")
     def toggle_raw_json(self):
         if self.show_json_var.get():
             self.raw_json_output.pack(padx=10, pady=(0, 10))
@@ -617,6 +703,10 @@ class CurlJSONFormatterApp:
         if path.endswith("/show") or path.endswith("/show'"):
             parts = path.split('/')
             return '/'.join(parts[:-2])  # Remove the last two parts (ID and 'show')
+         
+        if path.endswith("/update") or path.endswith("/update'"):
+            parts = path.split('/')
+            return '/'.join(parts[:-2])  
         return path
 
     def undo(self, event=None):
